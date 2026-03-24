@@ -109,6 +109,26 @@ export class UnityBridgeClient {
     return structured.data;
   }
 
+  /** Helper: send a game command and return the response. */
+  async call(tool: string, args: Record<string, unknown> = {}): Promise<MCPGameResponse> {
+    return this.sendMCPRequest(JSON.stringify({ tool, args }));
+  }
+
+  /**
+   * Poll get_player_state until has_active_action becomes false.
+   * Returns the final player state data.
+   */
+  async waitForAction(intervalMs = 3000, maxAttempts = 8): Promise<Record<string, unknown>> {
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise((r) => setTimeout(r, intervalMs));
+      const r = await this.call('get_player_state');
+      if (!r.ok) continue;
+      const data = r.data as Record<string, unknown>;
+      if (data.has_active_action === false) return data;
+    }
+    throw new Error(`Action did not complete within ${maxAttempts * intervalMs / 1000}s`);
+  }
+
   async disconnect(): Promise<void> {
     this.sessionId = undefined;
     this.endpoint = undefined;
