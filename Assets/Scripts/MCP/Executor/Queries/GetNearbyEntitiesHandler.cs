@@ -56,7 +56,7 @@ namespace MCP.Executor
             {
                 float dist = Vector3.Distance(player.transform.position, e.transform.position);
                 var pos = e.transform.position;
-                entities.Add(new Dictionary<string, object>
+                var entry = new Dictionary<string, object>
                 {
                     { "entity_id", e.runtimeId ?? e.entityId },
                     { "display_name", e.displayName },
@@ -64,7 +64,18 @@ namespace MCP.Executor
                     { "distance", Mathf.Round(dist * 100f) / 100f },
                     { "interactable", e.interactable },
                     { "position", new Dictionary<string, float> { { "x", pos.x }, { "y", pos.y }, { "z", pos.z } } }
-                });
+                };
+
+                // Include state if the entity has IInteractable
+                var interactable = e.GetComponent<IInteractable>();
+                if (interactable != null)
+                {
+                    var state = interactable.GetState();
+                    if (state != null && state.Count > 0)
+                        entry["state"] = state;
+                }
+
+                entities.Add(entry);
             }
 
             return new MCPResponse { Ok = true, Data = new Dictionary<string, object> { { "entities", entities } } };

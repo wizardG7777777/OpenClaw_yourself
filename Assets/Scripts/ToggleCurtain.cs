@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 public class ToggleCurtain : MonoBehaviour, IInteractable
@@ -45,5 +46,14 @@ public class ToggleCurtain : MonoBehaviour, IInteractable
     public string GetPromptText()
     {
         return isOpen ? "Close Curtain" : "Open Curtain";
+    }
+
+    public Dictionary<string, object> GetState()
+    {
+        return new Dictionary<string, object>
+        {
+            { "status", isOpen ? "open" : "closed" },
+            { "is_moving", isMoving }
+        };
     }
 }

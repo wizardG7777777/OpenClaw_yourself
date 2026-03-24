@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 public class ToggleDoor : MonoBehaviour, IInteractable
@@ -53,5 +54,14 @@ public class ToggleDoor : MonoBehaviour, IInteractable
     public string GetPromptText()
     {
         return isOpen ? "Close Door" : "Open Door";
+    }
+
+    public Dictionary<string, object> GetState()
+    {
+        return new Dictionary<string, object>
+        {
+            { "status", isOpen ? "open" : "closed" },
+            { "is_moving", isMoving }
+        };
     }
 }

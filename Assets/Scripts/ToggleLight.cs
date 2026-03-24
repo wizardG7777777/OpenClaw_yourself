@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 public class ToggleLight : MonoBehaviour, IInteractable
@@ -26,5 +27,13 @@ void Awake()
     public string GetPromptText()
     {
         return isOn ? "Turn Off Light" : "Turn On Light";
+    }
+
+    public Dictionary<string, object> GetState()
+    {
+        return new Dictionary<string, object>
+        {
+            { "status", isOn ? "on" : "off" }
+        };
     }
 }

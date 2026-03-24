@@ -611,6 +611,14 @@ namespace MCP.Tests.Executor
             {
                 return "Interact";
             }
+
+            public System.Collections.Generic.Dictionary<string, object> GetState()
+            {
+                return new System.Collections.Generic.Dictionary<string, object>
+                {
+                    { "status", WasInteracted ? "used" : "idle" }
+                };
+            }
         }
     }
 }

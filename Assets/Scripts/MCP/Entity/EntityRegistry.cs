@@ -8,6 +8,9 @@ namespace MCP.Entity
     {
         public static EntityRegistry Instance { get; private set; }
 
+        [Tooltip("When enabled, automatically adds EntityIdentity to GameObjects that have IInteractable but no EntityIdentity.")]
+        [SerializeField] private bool autoScanInteractables = true;
+
         private Dictionary<string, EntityIdentity> entities = new Dictionary<string, EntityIdentity>();
         private Dictionary<string, int> suffixCounters = new Dictionary<string, int>();
 
@@ -20,10 +23,70 @@ namespace MCP.Entity
             }
             Instance = this;
 
-            // Fallback: pick up any EntityIdentity already active in the scene
+            // Pick up any EntityIdentity already active in the scene
             var existing = FindObjectsByType<EntityIdentity>(FindObjectsSortMode.None);
             foreach (var e in existing)
                 Register(e);
+
+            // Auto-scan: find IInteractable objects without EntityIdentity
+            if (autoScanInteractables)
+                ScanForUnregisteredInteractables();
+        }
+
+        /// <summary>
+        /// Finds all GameObjects with IInteractable but without EntityIdentity,
+        /// auto-generates an EntityIdentity and registers them.
+        /// </summary>
+        private void ScanForUnregisteredInteractables()
+        {
+            var allBehaviours = FindObjectsByType<MonoBehaviour>(FindObjectsSortMode.None);
+            foreach (var mb in allBehaviours)
+            {
+                if (mb is not IInteractable) continue;
+                if (mb.GetComponent<EntityIdentity>() != null) continue;
+
+                var identity = mb.gameObject.AddComponent<EntityIdentity>();
+                identity.entityId = SanitizeName(mb.gameObject.name);
+                identity.displayName = mb.gameObject.name;
+                identity.entityType = InferEntityType(mb);
+                identity.interactable = true;
+                identity.autoSuffix = true;
+
+                Debug.Log($"[EntityRegistry] Auto-registered '{identity.entityId}' from {mb.gameObject.name} ({identity.entityType})");
+                Register(identity);
+            }
+        }
+
+        /// <summary>
+        /// Converts a GameObject name to a snake_case entity ID.
+        /// e.g. "Table Lamp (1)" → "table_lamp_1"
+        /// </summary>
+        private static string SanitizeName(string name)
+        {
+            // Remove common Unity clone suffixes
+            name = System.Text.RegularExpressions.Regex.Replace(name, @"\s*\(\d+\)\s*$", "");
+            // Replace spaces, hyphens, dots with underscores
+            name = System.Text.RegularExpressions.Regex.Replace(name, @"[\s\-\.]+", "_");
+            // Remove non-alphanumeric/underscore characters
+            name = System.Text.RegularExpressions.Regex.Replace(name, @"[^a-zA-Z0-9_]", "");
+            return name.ToLowerInvariant();
+        }
+
+        /// <summary>
+        /// Infers entity type from the IInteractable component type.
+        /// </summary>
+        private static string InferEntityType(MonoBehaviour interactable)
+        {
+            string typeName = interactable.GetType().Name.ToLowerInvariant();
+            if (typeName.Contains("door") || typeName.Contains("curtain") || typeName.Contains("bed") ||
+                typeName.Contains("sofa") || typeName.Contains("table") || typeName.Contains("chair"))
+                return "furniture";
+            if (typeName.Contains("light") || typeName.Contains("lamp") || typeName.Contains("tv") ||
+                typeName.Contains("radio") || typeName.Contains("computer"))
+                return "appliance";
+            if (typeName.Contains("npc") || typeName.Contains("character") || typeName.Contains("person"))
+                return "npc";
+            return "object";
         }
 
         private void OnEnable()
