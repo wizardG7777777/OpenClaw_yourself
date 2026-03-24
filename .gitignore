@@ -42,3 +42,6 @@ ignore.conf
 /[Aa]ssets/[Ss]treamingAssets/aa.meta
 /[Aa]ssets/[Ss]treamingAssets/aa/*
 node_modules/
+
+# Test screenshots
+/Assets/Screenshots/
