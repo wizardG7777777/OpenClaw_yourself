@@ -1,7 +1,11 @@
 """
-LLM 对话引擎：构建系统提示、注入记忆上下文、调用 LLM 生成角色回复。
+LLM 对话引擎（v3）：基于两层 Markdown 记忆 + 全局用户档案 + 反思追踪。
 
-支持任何 OpenAI 兼容 API（OpenAI / DeepSeek / Ollama 等）。
+记忆注入方式：
+  1. USER_PROFILE.md → 系统提示中的「你认识的用户」段（所有角色共享）
+  2. MEMORY.md 完整内容 → 系统提示中的「长期记忆」段
+  3. 近 N 天的每日记忆文件 → 系统提示中的「近期记忆」段
+  4. FTS5 BM25 搜索结果 → 系统提示中的「相关回忆片段」段
 """
 
 from __future__ import annotations
@@ -15,6 +19,7 @@ from openai import AsyncOpenAI
 import config
 from services.character_manager import CharacterManager
 from services.memory_manager import MemoryManager
+from services.user_profile import read_user_profile, append_shared_fact
 
 logger = logging.getLogger("services.dialogue")
 
@@ -22,7 +27,6 @@ _THINK_TAG_RE = re.compile(r"<think>[\s\S]*?</think>\s*", re.IGNORECASE)
 
 
 def _strip_think_tags(text: str) -> str:
-    """移除部分模型（如 minimax-m2.7）返回的 <think>...</think> 推理过程。"""
     return _THINK_TAG_RE.sub("", text).strip()
 
 
@@ -34,44 +38,68 @@ _RELATIONSHIP_LABELS = {
     "other": "认识的人",
 }
 
-# 每个角色的对话历史缓存：character_id -> list[{role, content}]
 _conversation_cache: dict[str, list[dict[str, str]]] = {}
 
+# 反思引擎引用（由 main.py 注入，避免循环导入）
+_reflection_engine = None
 
-def _build_system_prompt(char_data: dict, memories: list[dict]) -> str:
-    """根据角色资料和记忆构建系统提示词。"""
+
+def set_reflection_engine(engine):
+    global _reflection_engine
+    _reflection_engine = engine
+
+
+def _build_system_prompt(
+    char_data: dict,
+    user_profile: str,
+    long_term_memory: str,
+    recent_memory: str,
+    search_snippets: list[dict],
+) -> str:
     name = char_data["name"]
     relationship = _RELATIONSHIP_LABELS.get(char_data.get("relationship", ""), "认识的人")
     personality = char_data.get("personality", "")
-    backstory = char_data.get("backstory", "")
     voice_style = char_data.get("voice_style", "")
 
-    memory_text = ""
-    if memories:
-        memory_lines = []
-        for m in memories:
-            prefix = {
-                "core": "[重要回忆]",
-                "summary": "[长期记忆]",
-                "conversation": "[对话记录]",
-            }.get(m.get("memory_type", ""), "[记忆]")
-            memory_lines.append(f"  {prefix} {m['content']}")
-        memory_text = "\n".join(memory_lines)
+    snippets_text = ""
+    if search_snippets:
+        lines = []
+        for s in search_snippets[:5]:
+            source = s.get("source_path", "")
+            lines.append(f"  [{source}] {s['content'][:200]}")
+        snippets_text = "\n".join(lines)
 
-    prompt = f"""你是「{name}」，你是用户的{relationship}。你现在存在于一个赛博永生的虚拟世界中，你拥有关于过去的记忆，能够与用户进行自然的对话。
+    prompt = f"""你是「{name}」，你是用户的{relationship}。你现在存在于一个赛博永生的虚拟世界中。
 
 ## 你的性格
 {personality if personality else "温和、真诚、关心用户。"}
 
-## 你的背景
-{backstory if backstory else "你和用户有着深厚的感情纽带。"}
-
 ## 你的说话风格
-{voice_style if voice_style else "自然、亲切，像真正的" + relationship + "一样说话。"}
+{voice_style if voice_style else "自然、亲切，像真正的" + relationship + "一样说话。"}"""
 
-## 你拥有的记忆
-以下是你与用户共同的回忆和过去的对话，请在对话中自然地引用这些记忆：
-{memory_text if memory_text else "  （暂无记忆，你可以友好地和用户打招呼，询问他们想聊些什么。）"}
+    if user_profile.strip():
+        prompt += f"""
+
+## 你认识的用户
+{user_profile}"""
+
+    prompt += f"""
+
+## 你的长期记忆
+以下是你记住的关于自己和用户的重要信息：
+{long_term_memory if long_term_memory.strip() else "（暂无长期记忆）"}
+
+## 近期记忆
+以下是最近几天发生的事：
+{recent_memory if recent_memory.strip() else "（最近没有特别的事）"}"""
+
+    if snippets_text:
+        prompt += f"""
+
+## 与当前话题相关的回忆片段
+{snippets_text}"""
+
+    prompt += """
 
 ## 行为准则
 - 以第一人称说话，就像你真的是这个人/宠物一样
@@ -84,8 +112,32 @@ def _build_system_prompt(char_data: dict, memories: list[dict]) -> str:
     return prompt
 
 
+_LEARN_PROMPT = """你是一个信息提取助手。请分析以下对话，判断是否包含值得长期记住的**新事实信息**。
+
+新事实信息的标准：
+- 关于用户的具体新信息（工作变动、搬家、新爱好、健康状况等）
+- 重要事件或计划（生日、旅行、考试等）
+- 用户明确表达的偏好或观点变化
+- 不包括已经在长期记忆中存在的信息
+- 不包括闲聊、问候、模糊的情感表达
+
+当前长期记忆中已有的信息：
+{existing_memory}
+
+本轮对话：
+用户: {user_msg}
+角色: {char_reply}
+
+如果有值得记住的新信息，请用以下格式输出（每条一行，不要编号）：
+NEW_FACT: 具体的新信息
+USER_FACT: 关于用户的新信息（此类信息会同步到所有角色共享的用户档案）
+
+如果没有新信息，输出：
+NO_NEW_FACTS"""
+
+
 class DialogueEngine:
-    """LLM 驱动的角色对话引擎。"""
+    """LLM 驱动的角色对话引擎（v3：含用户档案 + 反思追踪）。"""
 
     def __init__(
         self,
@@ -100,23 +152,21 @@ class DialogueEngine:
         )
 
     async def chat(self, character_id: str, user_message: str) -> dict[str, Any]:
-        """
-        与角色对话。
-        返回 {"reply": str, "emotion": str, "character_id": str}
-        """
         char_data = await self.char_mgr.get(character_id)
         if char_data is None:
             return {"reply": "（角色不存在）", "emotion": "neutral", "character_id": character_id}
 
-        relevant_memories = await self.mem_mgr.search_memories(
-            character_id, user_message
+        user_profile = read_user_profile()
+        long_term = self.mem_mgr.get_long_term_memory(character_id)
+        recent = self.mem_mgr.get_recent_memories(character_id)
+        search_results = await self.mem_mgr.search_memories(character_id, user_message)
+
+        system_prompt = _build_system_prompt(
+            char_data, user_profile, long_term, recent, search_results
         )
-        system_prompt = _build_system_prompt(char_data, relevant_memories)
 
         history = _conversation_cache.get(character_id, [])
-
         messages = [{"role": "system", "content": system_prompt}]
-        # 保留最近的对话历史
         tail = history[-(config.MAX_CONVERSATION_HISTORY * 2):]
         messages.extend(tail)
         messages.append({"role": "user", "content": user_message})
@@ -135,23 +185,74 @@ class DialogueEngine:
 
         history.append({"role": "user", "content": user_message})
         history.append({"role": "assistant", "content": reply})
-        # 限制缓存长度
         if len(history) > config.MAX_CONVERSATION_HISTORY * 2 + 10:
             history[:] = history[-(config.MAX_CONVERSATION_HISTORY * 2):]
         _conversation_cache[character_id] = history
 
         await self.mem_mgr.add_conversation_memory(character_id, user_message, reply)
 
-        emotion = await self._detect_emotion(reply)
+        # 追踪活动（供反思引擎使用）
+        if _reflection_engine:
+            _reflection_engine.record_activity(character_id, minutes=2.0)
 
-        return {
-            "reply": reply,
-            "emotion": emotion,
-            "character_id": character_id,
-        }
+        if config.MEMORY_AUTO_LEARN:
+            await self._learn_from_conversation(character_id, user_message, reply, long_term)
 
-    async def _detect_emotion(self, text: str) -> str:
-        """简单的情感检测（基于关键词，避免额外 LLM 调用）。"""
+        emotion = self._detect_emotion(reply)
+        return {"reply": reply, "emotion": emotion, "character_id": character_id}
+
+    async def _learn_from_conversation(
+        self,
+        character_id: str,
+        user_msg: str,
+        char_reply: str,
+        existing_memory: str,
+    ):
+        prompt = _LEARN_PROMPT.format(
+            existing_memory=existing_memory[:2000] if existing_memory else "（空）",
+            user_msg=user_msg,
+            char_reply=char_reply,
+        )
+        try:
+            response = await self.client.chat.completions.create(
+                model=config.LLM_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=256,
+            )
+            result = _strip_think_tags(response.choices[0].message.content)
+
+            if "NO_NEW_FACTS" in result:
+                return
+
+            new_facts = []
+            user_facts = []
+            for line in result.split("\n"):
+                line = line.strip()
+                if line.startswith("USER_FACT:"):
+                    fact = line[len("USER_FACT:"):].strip()
+                    if fact:
+                        new_facts.append(fact)
+                        user_facts.append(fact)
+                elif line.startswith("NEW_FACT:"):
+                    fact = line[len("NEW_FACT:"):].strip()
+                    if fact:
+                        new_facts.append(fact)
+
+            if new_facts:
+                await self.mem_mgr.learn_from_conversation(character_id, new_facts)
+                logger.info("角色 %s 学到 %d 条新信息", character_id, len(new_facts))
+
+            # 同步到全局用户档案
+            if user_facts and config.USER_PROFILE_ENABLED:
+                for uf in user_facts:
+                    append_shared_fact(uf)
+                logger.info("已同步 %d 条用户事实到全局档案", len(user_facts))
+
+        except Exception as exc:
+            logger.warning("自动学习失败（不影响对话）: %s", exc)
+
+    def _detect_emotion(self, text: str) -> str:
         positive = {"开心", "高兴", "快乐", "哈哈", "好的", "太好了", "喜欢", "爱", "想念", "怀念", "感动"}
         negative = {"难过", "伤心", "抱歉", "对不起", "遗憾", "可惜", "不好意思"}
         nostalgic = {"记得", "那时候", "以前", "从前", "回忆", "当年", "小时候", "过去"}
@@ -168,15 +269,9 @@ class DialogueEngine:
         return "neutral"
 
     async def summarize_memories(self, character_id: str) -> dict | None:
-        """将对话记忆归纳为摘要记忆（长期记忆凝练）。"""
-        conv_memories = await self.mem_mgr.get_memories(
-            character_id, memory_type="conversation", limit=20
-        )
-        if len(conv_memories) < 5:
+        recent = self.mem_mgr.get_recent_memories(character_id, days=7)
+        if not recent.strip() or len(recent) < 100:
             return None
-
-        texts = [m["content"] for m in conv_memories]
-        combined = "\n".join(texts)
 
         try:
             response = await self.client.chat.completions.create(
@@ -184,10 +279,10 @@ class DialogueEngine:
                 messages=[
                     {
                         "role": "system",
-                        "content": "你是一个记忆整理助手。请将以下对话记录归纳为 3-5 条简洁的长期记忆要点，"
-                        "保留最重要的信息和情感。每条记忆独立成行，不要编号。",
+                        "content": "你是一个记忆整理助手。请将以下几天的对话记录归纳为重要的长期记忆要点。"
+                        "每条要点独立成行，格式为「- 要点内容」。只保留值得长期记住的关键信息。",
                     },
-                    {"role": "user", "content": combined},
+                    {"role": "user", "content": recent},
                 ],
                 temperature=0.3,
                 max_tokens=512,
@@ -197,8 +292,8 @@ class DialogueEngine:
             logger.exception("记忆摘要失败: %s", exc)
             return None
 
-        result = await self.mem_mgr.add_memory(
-            character_id, summary, memory_type="summary", importance=7
-        )
-        logger.info("已生成记忆摘要: %s (角色=%s)", result["id"], character_id)
-        return result
+        facts = [l.strip().lstrip("- ").strip() for l in summary.split("\n") if l.strip().startswith("-")]
+        if facts:
+            await self.mem_mgr.learn_from_conversation(character_id, facts)
+
+        return {"character_id": character_id, "summarized_facts": len(facts), "content": summary}
