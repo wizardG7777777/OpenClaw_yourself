@@ -1,10 +1,12 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.UI;
 using Newtonsoft.Json.Linq;
 using MCP.Gateway;
 
-public class MemoryInputUI : MonoBehaviour
+public class MemoryInputUI : MonoBehaviour, IUIPanel
 {
     public static MemoryInputUI Instance { get; private set; }
 
@@ -34,6 +36,10 @@ public class MemoryInputUI : MonoBehaviour
     [SerializeField] private KeyCode toggleKey = KeyCode.F3;
 
     private List<string> _characterIds = new List<string>();
+
+    // IUIPanel implementation
+    public bool IsExclusive => false;
+    public bool IsOpen => memoryPanel != null && memoryPanel.activeSelf;
 
     private void Awake()
     {
@@ -72,21 +78,43 @@ public class MemoryInputUI : MonoBehaviour
 
     private void Update()
     {
-        if (Input.GetKeyDown(toggleKey))
+        if (WasKeyPressedThisFrame(toggleKey))
         {
-            if (memoryPanel != null)
-            {
-                if (memoryPanel.activeSelf)
-                    ClosePanel();
-                else
-                    OpenPanel();
-            }
+            if (IsOpen)
+                ClosePanel();
+            else if (UIManager.Instance != null)
+                UIManager.Instance.RequestOpen(this);
+            else
+                Open();
         }
+    }
+
+    private static bool WasKeyPressedThisFrame(KeyCode keyCode)
+    {
+        Keyboard keyboard = Keyboard.current;
+        if (keyboard == null)
+            return false;
+
+        switch (keyCode)
+        {
+            case KeyCode.Return:
+                return keyboard.enterKey.wasPressedThisFrame;
+            case KeyCode.KeypadEnter:
+                return keyboard.numpadEnterKey.wasPressedThisFrame;
+        }
+
+        if (Enum.TryParse(keyCode.ToString(), true, out Key mappedKey))
+        {
+            var keyControl = keyboard[mappedKey];
+            return keyControl != null && keyControl.wasPressedThisFrame;
+        }
+
+        return false;
     }
 
     // ─── Public API ───────────────────────────────────────────────
 
-    public void OpenPanel()
+    public void Open()
     {
         if (memoryPanel != null)
             memoryPanel.SetActive(true);
@@ -105,21 +133,30 @@ public class MemoryInputUI : MonoBehaviour
         RefreshMemoryList();
     }
 
+    public void Close()
+    {
+        if (memoryPanel != null)
+            memoryPanel.SetActive(false);
+
+        if (UIManager.Instance != null)
+            UIManager.Instance.NotifyClose(this);
+    }
+
+    public void OpenPanel() => Open();
+    public void ClosePanel() => Close();
+
     public void OpenForCharacter(string characterId)
     {
-        OpenPanel();
+        if (UIManager.Instance != null)
+            UIManager.Instance.RequestOpen(this);
+        else
+            Open();
 
         int index = _characterIds.IndexOf(characterId);
         if (index >= 0 && characterDropdown != null)
         {
             characterDropdown.value = index;
         }
-    }
-
-    public void ClosePanel()
-    {
-        if (memoryPanel != null)
-            memoryPanel.SetActive(false);
     }
 
     // ─── Character Dropdown ───────────────────────────────────────

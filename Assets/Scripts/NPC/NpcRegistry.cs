@@ -2,11 +2,10 @@ using System.Collections.Generic;
 using UnityEngine;
 using Newtonsoft.Json.Linq;
 using MCP.Gateway;
-using MCP.Entity;
 
 /// <summary>
 /// Singleton registry that tracks all active NPCs and handles MCP backend events
-/// for character movement and state changes.
+/// for character state changes.
 /// </summary>
 public class NpcRegistry : MonoBehaviour
 {
@@ -31,7 +30,6 @@ public class NpcRegistry : MonoBehaviour
         _gateway = FindAnyObjectByType<MCPGateway>();
         if (_gateway != null)
         {
-            _gateway.RegisterEventHandler("character_move", OnCharacterMove);
             _gateway.RegisterEventHandler("character_state_changed", OnCharacterStateChanged);
             Debug.Log("[NpcRegistry] Registered MCP event handlers.");
         }
@@ -45,7 +43,6 @@ public class NpcRegistry : MonoBehaviour
     {
         if (_gateway != null)
         {
-            _gateway.UnregisterEventHandler("character_move", OnCharacterMove);
             _gateway.UnregisterEventHandler("character_state_changed", OnCharacterStateChanged);
         }
     }
@@ -122,75 +119,6 @@ public class NpcRegistry : MonoBehaviour
     // ────────────────────────────────────────────
 
     /// <summary>
-    /// Handles the "character_move" event from the backend.
-    /// Expected payload: { "character_id": "char_01", "target_id": "sofa_01" }
-    /// </summary>
-    private void OnCharacterMove(JObject data)
-    {
-        if (data == null)
-        {
-            Debug.LogWarning("[NpcRegistry] OnCharacterMove received null data.");
-            return;
-        }
-
-        string characterId = data["character_id"]?.Value<string>();
-        string targetId = data["target_id"]?.Value<string>();
-
-        if (string.IsNullOrEmpty(characterId))
-        {
-            Debug.LogWarning("[NpcRegistry] OnCharacterMove: missing 'character_id' in payload.");
-            return;
-        }
-
-        if (string.IsNullOrEmpty(targetId))
-        {
-            Debug.LogWarning($"[NpcRegistry] OnCharacterMove: missing 'target_id' for character '{characterId}'.");
-            return;
-        }
-
-        NpcController npc = GetByCharacterId(characterId);
-        if (npc == null)
-        {
-            Debug.LogWarning($"[NpcRegistry] OnCharacterMove: no NPC found with characterId '{characterId}'.");
-            return;
-        }
-
-        // Resolve target position via EntityRegistry
-        EntityIdentity targetEntity = EntityRegistry.Instance != null
-            ? EntityRegistry.Instance.GetById(targetId)
-            : null;
-
-        if (targetEntity == null)
-        {
-            Debug.LogWarning($"[NpcRegistry] OnCharacterMove: target '{targetId}' not found in EntityRegistry.");
-            return;
-        }
-
-        Vector3 targetPosition = targetEntity.transform.position;
-        npc.MoveTo(targetPosition);
-
-        // Set up arrival callback to notify backend
-        MCPGateway gw = _gateway;
-        npc.OnArrivalCallback = () =>
-        {
-            if (gw != null)
-            {
-                gw.SendToBackend("movement_completed",
-                    new JObject { ["character_id"] = characterId },
-                    (ok, responseData) =>
-                    {
-                        if (!ok)
-                            Debug.LogWarning($"[NpcRegistry] movement_completed for '{characterId}' failed: {responseData}");
-                        else
-                            Debug.Log($"[NpcRegistry] movement_completed acknowledged for '{characterId}'.");
-                    });
-            }
-        };
-
-        Debug.Log($"[NpcRegistry] NPC '{characterId}' moving to '{targetId}' at {targetPosition}.");
-    }
-
-    /// <summary>
     /// Handles the "character_state_changed" event from the backend.
     /// Expected payload: { "character_id": "char_01", "status": "idle" }
     /// </summary>
@@ -229,7 +157,7 @@ public class NpcRegistry : MonoBehaviour
                 Debug.Log($"[NpcRegistry] NPC '{characterId}' set to talking.");
                 break;
             case "walking":
-                // Walking is handled by character_move; nothing to do here.
+                // Walking is handled by the unified move_to action system.
                 break;
             default:
                 Debug.LogWarning($"[NpcRegistry] OnCharacterStateChanged: unknown status '{status}' for '{characterId}'.");

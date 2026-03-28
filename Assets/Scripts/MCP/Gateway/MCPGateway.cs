@@ -37,6 +37,18 @@ namespace MCP.Gateway
         /// <summary>Whether the backend WebSocket connection is currently active.</summary>
         public bool IsBackendConnected => _transport?.IsConnected ?? false;
 
+        private void EnsureBackendHelpersInitialized()
+        {
+            if (_transport == null)
+                _transport = new WebSocketTransport(backendUrl);
+
+            if (_outboundRequests == null)
+                _outboundRequests = new OutboundRequestManager();
+
+            if (_eventDispatcher == null)
+                _eventDispatcher = new BackendEventDispatcher();
+        }
+
         private void Awake()
         {
             if (router == null)
@@ -45,13 +57,13 @@ namespace MCP.Gateway
             Application.runInBackground = true;
 
             // Initialize backend communication helpers
-            _transport = new WebSocketTransport(backendUrl);
-            _outboundRequests = new OutboundRequestManager();
-            _eventDispatcher = new BackendEventDispatcher();
+            EnsureBackendHelpersInitialized();
         }
 
         private void OnEnable()
         {
+            EnsureBackendHelpersInitialized();
+
             if (autoConnectOnStart)
             {
                 _transport.Start();
@@ -60,13 +72,15 @@ namespace MCP.Gateway
 
         private void OnDisable()
         {
-            _transport.Stop();
-            _outboundRequests.CancelAll();
-            _eventDispatcher.ClearAllHandlers();
+            _transport?.Stop();
+            _outboundRequests?.CancelAll();
+            _eventDispatcher?.ClearAllHandlers();
         }
 
         private void Update()
         {
+            EnsureBackendHelpersInitialized();
+
             // Drain incoming WebSocket messages and dispatch by frame type
             var messages = _transport.DrainMessages();
             if (messages != null)
@@ -174,6 +188,8 @@ namespace MCP.Gateway
         /// </summary>
         public void SendToBackend(string method, JObject @params, Action<bool, JObject> onResponse, float timeout = 30f)
         {
+            EnsureBackendHelpersInitialized();
+
             if (!IsBackendConnected)
             {
                 onResponse?.Invoke(false, new JObject
@@ -192,6 +208,7 @@ namespace MCP.Gateway
         /// </summary>
         public void SendEventToBackend(string eventName, object data)
         {
+            EnsureBackendHelpersInitialized();
             string eventFrame = _eventDispatcher.CreateEvent(eventName, data);
             _transport.Send(eventFrame);
         }
@@ -201,6 +218,7 @@ namespace MCP.Gateway
         /// </summary>
         public void RegisterEventHandler(string eventName, Action<JObject> handler)
         {
+            EnsureBackendHelpersInitialized();
             _eventDispatcher.RegisterHandler(eventName, handler);
         }
 
@@ -209,6 +227,7 @@ namespace MCP.Gateway
         /// </summary>
         public void UnregisterEventHandler(string eventName, Action<JObject> handler)
         {
+            EnsureBackendHelpersInitialized();
             _eventDispatcher.UnregisterHandler(eventName, handler);
         }
 
@@ -216,6 +235,7 @@ namespace MCP.Gateway
         {
             _transport?.Stop();
             _outboundRequests?.CancelAll();
+            _eventDispatcher?.ClearAllHandlers();
         }
 
         /// <summary>

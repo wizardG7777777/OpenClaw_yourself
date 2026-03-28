@@ -59,7 +59,7 @@ namespace MCP.Router
                 "move_to", "Move the player to a target location or entity",
                 isExclusive: true, defaultTimeout: 30f,
                 requiredParams: new string[] { "target_id" },
-                optionalParams: new string[] { "timeout" },
+                optionalParams: new string[] { "actor_id", "timeout" },
                 handlerType: typeof(MoveToHandler)));
 
             RegisterTool(new ToolDefinition(

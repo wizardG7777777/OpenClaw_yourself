@@ -1,5 +1,6 @@
 using System.Collections;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.UI;
 using Newtonsoft.Json.Linq;
 using MCP.Gateway;
@@ -9,7 +10,7 @@ using MCP.Gateway;
 /// Sends player messages to the Python backend via MCPGateway and
 /// displays replies with a typewriter effect.
 /// </summary>
-public class NpcDialogueUI : MonoBehaviour
+public class NpcDialogueUI : MonoBehaviour, IUIPanel
 {
     // ------------------------------------------------------------------
     //  Singleton
@@ -47,6 +48,10 @@ public class NpcDialogueUI : MonoBehaviour
     private Coroutine typewriterCoroutine;
     private Coroutine bubbleCoroutine;
 
+    // IUIPanel implementation
+    public bool IsExclusive => true;
+    public bool IsOpen => dialoguePanel != null && dialoguePanel.activeSelf;
+
     // ==================================================================
     //  Unity lifecycle
     // ==================================================================
@@ -81,7 +86,8 @@ public class NpcDialogueUI : MonoBehaviour
     {
         if (dialoguePanel != null && dialoguePanel.activeSelf)
         {
-            if (Input.GetKeyDown(KeyCode.Escape))
+            Keyboard keyboard = Keyboard.current;
+            if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame)
                 CloseDialogue();
         }
     }
@@ -99,14 +105,24 @@ public class NpcDialogueUI : MonoBehaviour
     /// <summary>
     /// Opens the dialogue panel for the given NPC.
     /// </summary>
+    public void Open()
+    {
+        // Use OpenDialogue(npc) instead; this satisfies the IUIPanel interface.
+        if (dialoguePanel != null)
+            dialoguePanel.SetActive(true);
+    }
+
     public void OpenDialogue(NpcController npc)
     {
         if (npc == null) return;
 
-        currentNpc = npc;
+        // Register with UIManager as exclusive panel
+        if (UIManager.Instance != null)
+            UIManager.Instance.RequestOpen(this);
+        else
+            Open();
 
-        if (dialoguePanel != null)
-            dialoguePanel.SetActive(true);
+        currentNpc = npc;
 
         if (npcNameText != null)
             npcNameText.text = npc.displayName;
@@ -128,10 +144,18 @@ public class NpcDialogueUI : MonoBehaviour
     /// <summary>
     /// Closes the dialogue panel and releases the current NPC.
     /// </summary>
+    public void Close()
+    {
+        CloseDialogue();
+    }
+
     public void CloseDialogue()
     {
         if (dialoguePanel != null)
             dialoguePanel.SetActive(false);
+
+        if (UIManager.Instance != null)
+            UIManager.Instance.NotifyClose(this);
 
         if (typewriterCoroutine != null)
         {
@@ -172,7 +196,8 @@ public class NpcDialogueUI : MonoBehaviour
     private void OnInputEndEdit(string text)
     {
         // Submit on Enter key (not Tab or click-away)
-        if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
+        Keyboard keyboard = Keyboard.current;
+        if (keyboard != null && (keyboard.enterKey.wasPressedThisFrame || keyboard.numpadEnterKey.wasPressedThisFrame))
             OnSendClicked();
     }
 

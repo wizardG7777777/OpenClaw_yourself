@@ -114,6 +114,22 @@ public class NpcController : MonoBehaviour, IInteractable
         }
     }
 
+    private void OnEnable()
+    {
+        if (NpcRegistry.Instance != null)
+        {
+            NpcRegistry.Instance.Register(this);
+        }
+    }
+
+    private void OnDisable()
+    {
+        if (NpcRegistry.Instance != null)
+        {
+            NpcRegistry.Instance.Unregister(this);
+        }
+    }
+
     // ==================================================================
     //  IInteractable
     // ==================================================================

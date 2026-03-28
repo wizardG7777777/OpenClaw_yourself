@@ -8,11 +8,6 @@ namespace MCP.Executor
     {
         private ActionInstance action;
 
-        private static readonly HashSet<string> InventoryItems = new HashSet<string>
-        {
-            "wrench", "shovel", "postcard"
-        };
-
         public bool IsComplete => action != null && action.Status != ActionStatus.Running;
 
         public void StartAction(ActionInstance action)
@@ -20,7 +15,7 @@ namespace MCP.Executor
             this.action = action;
 
             string itemId = action.Target?.EntityId;
-            if (string.IsNullOrEmpty(itemId) || !InventoryItems.Contains(itemId))
+            if (string.IsNullOrEmpty(itemId) || ItemRegistry.Instance == null || !ItemRegistry.Instance.Contains(itemId))
             {
                 action.Status = ActionStatus.Failed;
                 action.ErrorCode = ErrorCodes.TARGET_NOT_FOUND;

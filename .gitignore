@@ -6,7 +6,7 @@
 /[Bb]uilds/
 /[Ll]ogs/
 /[Uu]ser[Ss]ettings/
-/[Mm]emoryCaptures/
+/[Mm]emory[Cc]aptures/
 /[Rr]ecordings/
 
 # IDE
@@ -14,6 +14,7 @@
 .vscode/
 *.csproj
 *.sln
+*.slnx
 *.suo
 *.tmp
 *.user
@@ -45,3 +46,8 @@ node_modules/
 
 # Test screenshots
 /Assets/Screenshots/
+
+# Local integration docs (do not track)
+/Docs/backend_development_plan.pdf
+/Docs/mcp_integration_preflight_fix_guide.md
+/Docs/mcp_placeholder_implementations_audit.md

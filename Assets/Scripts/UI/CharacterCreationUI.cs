@@ -1,9 +1,11 @@
+using System;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.UI;
 using Newtonsoft.Json.Linq;
 using MCP.Gateway;
 
-public class CharacterCreationUI : MonoBehaviour
+public class CharacterCreationUI : MonoBehaviour, IUIPanel
 {
     public static CharacterCreationUI Instance { get; private set; }
 
@@ -40,6 +42,10 @@ public class CharacterCreationUI : MonoBehaviour
     private MCPGateway _gateway;
     private string _editingCharacterId;
 
+    // IUIPanel implementation
+    public bool IsExclusive => false;
+    public bool IsOpen => creationPanel != null && creationPanel.activeSelf;
+
     private void Awake()
     {
         if (Instance != null && Instance != this)
@@ -75,19 +81,41 @@ public class CharacterCreationUI : MonoBehaviour
 
     private void Update()
     {
-        if (Input.GetKeyDown(toggleKey))
+        if (WasKeyPressedThisFrame(toggleKey))
         {
-            if (creationPanel != null)
-            {
-                if (creationPanel.activeSelf)
-                    ClosePanel();
-                else
-                    OpenPanel();
-            }
+            if (IsOpen)
+                ClosePanel();
+            else if (UIManager.Instance != null)
+                UIManager.Instance.RequestOpen(this);
+            else
+                Open();
         }
     }
 
-    public void OpenPanel()
+    private static bool WasKeyPressedThisFrame(KeyCode keyCode)
+    {
+        Keyboard keyboard = Keyboard.current;
+        if (keyboard == null)
+            return false;
+
+        switch (keyCode)
+        {
+            case KeyCode.Return:
+                return keyboard.enterKey.wasPressedThisFrame;
+            case KeyCode.KeypadEnter:
+                return keyboard.numpadEnterKey.wasPressedThisFrame;
+        }
+
+        if (Enum.TryParse(keyCode.ToString(), true, out Key mappedKey))
+        {
+            var keyControl = keyboard[mappedKey];
+            return keyControl != null && keyControl.wasPressedThisFrame;
+        }
+
+        return false;
+    }
+
+    public void Open()
     {
         if (creationPanel != null)
             creationPanel.SetActive(true);
@@ -109,11 +137,17 @@ public class CharacterCreationUI : MonoBehaviour
         RefreshCharacterList();
     }
 
-    public void ClosePanel()
+    public void Close()
     {
         if (creationPanel != null)
             creationPanel.SetActive(false);
+
+        if (UIManager.Instance != null)
+            UIManager.Instance.NotifyClose(this);
     }
+
+    public void OpenPanel() => Open();
+    public void ClosePanel() => Close();
 
     public void OpenForEdit(string characterId)
     {
