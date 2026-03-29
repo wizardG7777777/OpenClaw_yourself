@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using MCP.Core;
 using MCP.Entity;
+using MCP.Executor;
 
 namespace MCP.Router
 {
@@ -151,18 +152,29 @@ namespace MCP.Router
 
         private MCPResponse DispatchQuery(MCPRequest request, ToolDefinition tool, Dictionary<string, object> args)
         {
-            // Query dispatch: return data payload directly.
-            // Actual query handler implementations will be provided by the execution layer.
-            return new MCPResponse
+            // Route to the appropriate query handler based on tool name.
+            switch (tool.ToolName)
             {
-                Ok = true,
-                Data = new Dictionary<string, object>
-                {
-                    { "tool", tool.ToolName },
-                    { "args", args },
-                    { "message", "Query dispatched. Awaiting execution layer handler." }
-                }
-            };
+                case "get_inventory":
+                    return GetInventoryHandler.Handle(request);
+                case "get_player_state":
+                    return GetPlayerStateHandler.Handle(request);
+                case "get_world_summary":
+                    return GetWorldSummaryHandler.Handle(request);
+                case "get_nearby_entities":
+                    return GetNearbyEntitiesHandler.Handle(request);
+                default:
+                    return new MCPResponse
+                    {
+                        Ok = true,
+                        Data = new Dictionary<string, object>
+                        {
+                            { "tool", tool.ToolName },
+                            { "args", args },
+                            { "message", "Query dispatched. No handler registered." }
+                        }
+                    };
+            }
         }
 
         private MCPResponse DispatchAction(
