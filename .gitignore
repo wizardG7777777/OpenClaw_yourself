@@ -51,3 +51,7 @@ node_modules/
 /Docs/backend_development_plan.pdf
 /Docs/mcp_integration_preflight_fix_guide.md
 /Docs/mcp_placeholder_implementations_audit.md
+
+# Python cache (MockBackend)
+MockBackend/**/__pycache__/
+MockBackend/**/*.py[cod]
