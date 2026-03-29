@@ -4,6 +4,7 @@ using MCP.Core;
 using MCP.Entity;
 using UnityEngine;
 using System.Collections.Generic;
+using System.Reflection;
 
 namespace MCP.Tests.Executor
 {
@@ -14,6 +15,7 @@ namespace MCP.Tests.Executor
     {
         private GameObject player;
         private GameObject target;
+        private GameObject itemRegistryGo;
 
         [SetUp]
         public void SetUp()
@@ -26,6 +28,17 @@ namespace MCP.Tests.Executor
             // Create target entity
             target = new GameObject("TargetEntity");
             target.transform.position = new Vector3(2f, 0, 0);
+
+            // Create ItemRegistry with default items
+            itemRegistryGo = new GameObject("ItemRegistry");
+            var registry = itemRegistryGo.AddComponent<ItemRegistry>();
+            typeof(ItemRegistry)
+                .GetProperty("Instance", BindingFlags.Static | BindingFlags.Public)
+                ?.GetSetMethod(true)
+                ?.Invoke(null, new object[] { registry });
+            // Trigger Awake to register default items
+            var awake = typeof(ItemRegistry).GetMethod("Awake", BindingFlags.NonPublic | BindingFlags.Instance);
+            awake?.Invoke(registry, null);
         }
 
         [TearDown]
@@ -35,6 +48,13 @@ namespace MCP.Tests.Executor
                 Object.DestroyImmediate(player);
             if (target != null)
                 Object.DestroyImmediate(target);
+            if (itemRegistryGo != null)
+                Object.DestroyImmediate(itemRegistryGo);
+
+            typeof(ItemRegistry)
+                .GetProperty("Instance", BindingFlags.Static | BindingFlags.Public)
+                ?.GetSetMethod(true)
+                ?.Invoke(null, new object[] { null });
 
             // Clean up any remaining
             var remaining = Object.FindObjectsByType<EntityIdentity>(FindObjectsSortMode.None);

@@ -4,6 +4,7 @@ using MCP.Core;
 using MCP.Entity;
 using UnityEngine;
 using System.Collections.Generic;
+using System.Reflection;
 
 namespace MCP.Tests.Executor
 {
@@ -12,10 +13,36 @@ namespace MCP.Tests.Executor
     /// </summary>
     public class ExecutorTests
     {
+        private GameObject itemRegistryGo;
+
+        [SetUp]
+        public void SetUp()
+        {
+            itemRegistryGo = new GameObject("ItemRegistry");
+            var registry = itemRegistryGo.AddComponent<ItemRegistry>();
+            typeof(ItemRegistry)
+                .GetProperty("Instance", BindingFlags.Static | BindingFlags.Public)
+                ?.GetSetMethod(true)
+                ?.Invoke(null, new object[] { registry });
+            var awake = typeof(ItemRegistry).GetMethod("Awake", BindingFlags.NonPublic | BindingFlags.Instance);
+            awake?.Invoke(registry, null);
+        }
+
+        [TearDown]
+        public void TearDown()
+        {
+            if (itemRegistryGo != null)
+                Object.DestroyImmediate(itemRegistryGo);
+            typeof(ItemRegistry)
+                .GetProperty("Instance", BindingFlags.Static | BindingFlags.Public)
+                ?.GetSetMethod(true)
+                ?.Invoke(null, new object[] { null });
+        }
+
         #region GetInventoryHandler Tests
 
         [Test]
-        public void GetInventoryHandler_ReturnsHardcodedMVPItems()
+        public void GetInventoryHandler_ReturnsMVPItems()
         {
             // Arrange
             var request = new MCPRequest { Tool = "get_inventory" };
@@ -74,6 +101,11 @@ namespace MCP.Tests.Executor
             Assert.IsNotNull(wrench);
             Assert.AreEqual("扳手", wrench["display_name"]);
             Assert.AreEqual(1, wrench["quantity"]);
+            Assert.IsTrue(wrench.ContainsKey("description"));
+            Assert.IsTrue(wrench.ContainsKey("type"));
+            Assert.AreEqual("Tool", wrench["type"]);
+            Assert.AreEqual(true, wrench["is_usable"]);
+            Assert.AreEqual(true, wrench["is_equippable"]);
         }
 
         #endregion

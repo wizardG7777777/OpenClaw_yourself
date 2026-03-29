@@ -22,10 +22,22 @@ namespace MCP.Tests.Integration
         private GameObject gatewayGo;
         private GameObject executionManagerGo;
         private GameObject player;
+        private GameObject itemRegistryGo;
 
         [SetUp]
         public void SetUp()
         {
+            // Create ItemRegistry
+            itemRegistryGo = new GameObject("ItemRegistry");
+            var itemRegistry = itemRegistryGo.AddComponent<ItemRegistry>();
+            typeof(ItemRegistry)
+                .GetProperty("Instance", BindingFlags.Static | BindingFlags.Public)
+                ?.GetSetMethod(true)
+                ?.Invoke(null, new object[] { itemRegistry });
+            typeof(ItemRegistry)
+                .GetMethod("Awake", BindingFlags.NonPublic | BindingFlags.Instance)
+                ?.Invoke(itemRegistry, null);
+
             // Create core components
             registryGo = new GameObject("EntityRegistry");
             registry = registryGo.AddComponent<EntityRegistry>();
@@ -54,6 +66,11 @@ namespace MCP.Tests.Integration
             if (gatewayGo != null) Object.DestroyImmediate(gatewayGo);
             if (executionManagerGo != null) Object.DestroyImmediate(executionManagerGo);
             if (player != null) Object.DestroyImmediate(player);
+            if (itemRegistryGo != null) Object.DestroyImmediate(itemRegistryGo);
+            typeof(ItemRegistry)
+                .GetProperty("Instance", BindingFlags.Static | BindingFlags.Public)
+                ?.GetSetMethod(true)
+                ?.Invoke(null, new object[] { null });
 
             // Clean up any test entities
             var remaining = Object.FindObjectsByType<EntityIdentity>(FindObjectsSortMode.None);

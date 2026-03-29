@@ -15,6 +15,20 @@ namespace MCP.Tests.Gateway
     {
         private GameObject routerObject;
         private GameObject gatewayObject;
+        private GameObject itemRegistryGo;
+
+        [SetUp]
+        public void SetUp()
+        {
+            itemRegistryGo = new GameObject("ItemRegistry");
+            var registry = itemRegistryGo.AddComponent<ItemRegistry>();
+            typeof(ItemRegistry)
+                .GetProperty("Instance", BindingFlags.Static | BindingFlags.Public)
+                ?.GetSetMethod(true)
+                ?.Invoke(null, new object[] { registry });
+            var awake = typeof(ItemRegistry).GetMethod("Awake", BindingFlags.NonPublic | BindingFlags.Instance);
+            awake?.Invoke(registry, null);
+        }
 
         [TearDown]
         public void TearDown()
@@ -25,21 +39,23 @@ namespace MCP.Tests.Gateway
             if (routerObject != null)
                 Object.DestroyImmediate(routerObject);
 
+            if (itemRegistryGo != null)
+                Object.DestroyImmediate(itemRegistryGo);
+
             gatewayObject = null;
             routerObject = null;
+
+            typeof(ItemRegistry)
+                .GetProperty("Instance", BindingFlags.Static | BindingFlags.Public)
+                ?.GetSetMethod(true)
+                ?.Invoke(null, new object[] { null });
         }
 
         private MCPGateway CreateGateway()
         {
             routerObject = new GameObject("MCPRouter");
             var router = routerObject.AddComponent<MCPRouter>();
-
-            var registry = new ToolRegistry();
-            registry.RegisterMVPTools();
-
-            typeof(MCPRouter)
-                .GetProperty("Registry", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                ?.SetValue(router, registry);
+            // Registry is auto-initialized via lazy getter, no need to set manually
 
             gatewayObject = new GameObject("MCPGateway");
             var gateway = gatewayObject.AddComponent<MCPGateway>();
